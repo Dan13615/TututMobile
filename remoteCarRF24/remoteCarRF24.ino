@@ -25,9 +25,6 @@
 #define PIN_SPI_SCK         13
 #define PIN_BATTERY         A0
 #define PIN_BUZZER          A0
-#define PIN_TRACKING_LEFT   A1
-#define PIN_TRACKING_CENTER A2
-#define PIN_TRACKING_RIGHT  A3
 #define MOTOR_PWM_DEAD      10
 #define BAT_VOL_STANDARD    7.0
 
@@ -94,6 +91,7 @@ RF24 radio(PIN_SPI_CE, PIN_SPI_CSN);
 const byte addresses[6] = "Free1";
 int nrfDataRead[8];
 bool nrfComplete = false;
+
 enum RemoteData
 {
   POT1 = 0,
@@ -105,6 +103,7 @@ enum RemoteData
   S2 = 6,
   S3 = 7
 };
+
 enum RemoteMode {
   ON_ON_ON = 0,
   ON_ON_OFF = 1,    //Servo calibration mode.
@@ -115,6 +114,7 @@ enum RemoteMode {
   OFF_OFF_ON = 6,   //
   OFF_OFF_OFF = 7     //Remote control mode.
 };
+
 enum RemoteModeSwitchState {
   MODE_SWITCHING_IS_INITIALIZING = 0,
   MODE_SWITCHING_IS_PROCESSING = 1,
@@ -129,7 +129,15 @@ u8 switchModeState = MODE_SWITCHING_WAS_FINISHED;
 u8 joystickSwitchState = MODE_SWITCHING_WAS_FINISHED;
 
 void setup() {
-  pinsSetup();
+  pinMode(PIN_DIRECTION_LEFT, OUTPUT);
+  pinMode(PIN_MOTOR_PWM_LEFT, OUTPUT);
+  pinMode(PIN_DIRECTION_RIGHT, OUTPUT);
+  pinMode(PIN_MOTOR_PWM_RIGHT, OUTPUT);
+
+  pinMode(PIN_SONIC_TRIG, OUTPUT);
+  pinMode(PIN_SONIC_ECHO, INPUT);
+
+  setBuzzer(false);
   if (!nrf24L01Setup()) {
     alarm(4, 2);
   }
@@ -209,7 +217,7 @@ void loop() {
         case ON_OFF_ON:
           break;
         case ON_OFF_OFF:    ////Sonic Obstacle Avoidance Mode, S1 is ON and S2, S3 are OFF
-          updateAutomaticObstacleAvoidance();
+          detectObstacles();
           break;
         case OFF_ON_ON:
           break;
@@ -325,14 +333,15 @@ void loop() {
   }
 }
 
-/////////
-void servoSetup() {
+void servoSetup()
+{
   getServoOffsetFromEEPROM();
   servo.attach(PIN_SERVO);
   servo.write(90 + servoOffset);
 }
 
-void setServoOffset(char offset) {
+void setServoOffset(char offset)
+{
   servoOffset = offset = constrain(offset, -100, 100);
   servo.write(90 + offset);
 }
@@ -342,17 +351,20 @@ void writeServo(u8 n)
   servo.write(90 + servoOffset);
 }
 
-void writeServoOffsetToEEPROM() {
+void writeServoOffsetToEEPROM()
+{
   servo.write(90 + servoOffset);
   EEPROM.write(OA_SERVO_OFFSET_ADDR_IN_EEPROM, servoOffset);
 }
 
-void getServoOffsetFromEEPROM() {
+void getServoOffsetFromEEPROM()
+{
   servoOffset = EEPROM.read(OA_SERVO_OFFSET_ADDR_IN_EEPROM);
   servoOffset = constrain(servoOffset, -10, 10);
 }
 
-float getSonar() {
+float getSonar()
+{
   unsigned long pingTime;
   float distance;
   digitalWrite(PIN_SONIC_TRIG, HIGH); // make trigPin output high level lasting for 10��s to triger HC_SR04,
@@ -366,16 +378,15 @@ float getSonar() {
   return distance; // return the distance value
 }
 
-void oa_CalculateVoltageCompensation() {
+void oa_CalculateVoltageCompensation()
+{
   getBatteryVoltage();
   float voltageOffset = BAT_VOL_STANDARD - batteryVoltage;
   oa_VoltageCompensationToSpeed = voltageOffset * OA_SPEED_OFFSET_PER_V;
-  /*Serial.print(voltageOffset);
-  Serial.print('\t');
-  Serial.println(oa_VoltageCompensationToSpeed);*/
 }
 
-void updateAutomaticObstacleAvoidance() {
+void detectObstacles()
+{
   int tempDistance[3][5], sumDisntance;
   static u8 cnt = 0, servoAngle = 0, lastServoAngle = 0;  //
   if (cnt == 0) {
@@ -416,122 +427,52 @@ void updateAutomaticObstacleAvoidance() {
   }
 
   if (distance[1] < OA_OBSTACLE_DISTANCE) {       //Too little distance ahead
-    if (distance[0] > OA_OBSTACLE_DISTANCE || distance[2] > OA_OBSTACLE_DISTANCE) {
-      motorRun(-OA_BACK_SPEED_LOW, -OA_BACK_SPEED_LOW); //Move back a little
-      delay(100);
-      if (distance[0] > distance[2]) {      //Left distance is greater than right distance
-        motorRun(-OA_ROTATY_SPEED_LOW, OA_ROTATY_SPEED_LOW);
-      }
-      else {                    //Right distance is greater than left distance
-        motorRun(OA_ROTATY_SPEED_LOW, -OA_ROTATY_SPEED_LOW);
-      }
-    }
-    else {                      //Get into the dead corner, move back a little, then spin.
-      motorRun(-OA_BACK_SPEED_HIGH, -OA_BACK_SPEED_HIGH);
-      delay(100);
-      motorRun(-OA_ROTATY_SPEED_NORMAL, OA_ROTATY_SPEED_NORMAL);
-    }
+    setBuzzer(true);
   }
   else {                        //No obstacles ahead
     if (distance[0] < OA_OBSTACLE_DISTANCE) {     //Obstacles on the left front.
-      if (distance[0] < OA_OBSTACLE_DISTANCE_LOW) { //Very close to the left front obstacle.
-        motorRun(-OA_BACK_SPEED_LOW, -OA_BACK_SPEED_LOW); //Move back
-        delay(100);
-      }
-      motorRun(OA_TURN_SPEED_LV4, OA_TURN_SPEED_LV1);
+      setBuzzer(true);
     }
     else if (distance[2] < OA_OBSTACLE_DISTANCE) {      //Obstacles on the right front.
-      if (distance[2] < OA_OBSTACLE_DISTANCE_LOW) {   //Very close to the right front obstacle.
-        motorRun(-OA_BACK_SPEED_LOW, -OA_BACK_SPEED_LOW); //Move back
-        delay(100);
-      }
-      motorRun(OA_TURN_SPEED_LV1, OA_TURN_SPEED_LV4);
+      setBuzzer(true);
     }
     else {                        //Cruising
       motorRun(OA_CRUISE_SPEED, OA_CRUISE_SPEED);
+      setBuzzer(false);
     }
   }
 }
 
-////////
-void tk_CalculateVoltageCompensation() {
+void tk_CalculateVoltageCompensation()
+{
   getBatteryVoltage();
   float voltageOffset = BAT_VOL_STANDARD - batteryVoltage;
   tk_VoltageCompensationToSpeed = voltageOffset * TK_SPEED_OFFSET_PER_V;
-  /*Serial.print(voltageOffset);
-  Serial.print('\t');
-  Serial.println(tk_VoltageCompensationToSpeed);*/
 }
 
-//The black line is detected to be high, whereas the white object (the reflected signal) is detected to be low.
-//left center right -->0111
-u8 getTrackingSensorVal() {
-  u8 trackingSensorVal = 0;
-  trackingSensorVal = (digitalRead(PIN_TRACKING_LEFT) == 1 ? 1 : 0) << 2 | (digitalRead(PIN_TRACKING_CENTER) == 1 ? 1 : 0) << 1 | (digitalRead(PIN_TRACKING_RIGHT) == 1 ? 1 : 0) << 0;
-  return trackingSensorVal;
-}
-
-void updateAutomaticTrackingLine() {
-  u8 trackingSensorVal = 0;
-  trackingSensorVal = getTrackingSensorVal();
-  //Serial.print(trackingSensorVal, BIN);
-  switch (trackingSensorVal)
-  {
-  case 0:   //000
-    motorRun(TK_FORWARD_SPEED, TK_FORWARD_SPEED);
-    break;
-  case 7:   //111
-    motorRun(TK_STOP_SPEED, TK_STOP_SPEED);
-    break;
-  case 1:   //001
-    motorRun(TK_TURN_SPEED_LV4, TK_TURN_SPEED_LV1);
-    break;
-  case 3:   //011
-    motorRun(TK_TURN_SPEED_LV3, TK_TURN_SPEED_LV2);
-    break;
-  case 2:   //010
-  case 5:   //101
-    motorRun(TK_FORWARD_SPEED, TK_FORWARD_SPEED);
-    break;
-  case 6:   //110
-    motorRun(TK_TURN_SPEED_LV2, TK_TURN_SPEED_LV3);
-    break;
-  case 4:   //100
-    motorRun(TK_TURN_SPEED_LV1, TK_TURN_SPEED_LV4);
-    break;
-  default:
-    break;
-  }
-  //Serial.println();
-  //delay(10);
-}
-/////////
-
-bool nrf24L01Setup() {
-  // NRF24L01
+bool nrf24L01Setup()
+{
   if (radio.begin()) {                      // initialize RF24
-    radio.setPALevel(RF24_PA_MAX);      // set power amplifier (PA) level
-    radio.setDataRate(RF24_1MBPS);      // set data rate through the air
-    radio.setRetries(0, 15);            // set the number and delay of retries
-    radio.openWritingPipe(addresses);   // open a pipe for writing
-    radio.openReadingPipe(1, addresses);// open a pipe for reading
-    radio.startListening();             // start monitoringtart listening on the pipes opened
-    
-    FlexiTimer2::set(20, 1.0 / 1000, checkNrfReceived); // call every 20 1ms "ticks"
+    radio.setPALevel(RF24_PA_MAX);
+    radio.setDataRate(RF24_1MBPS);
+    radio.setRetries(0, 15);
+    radio.openWritingPipe(addresses);
+    radio.openReadingPipe(1, addresses);
+    radio.startListening();
+    FlexiTimer2::set(20, 1.0 / 1000, checkNrfReceived);
     FlexiTimer2::start();
-
-	return true;
+	  return true;
   }
   return false;
 }
 
-void checkNrfReceived() {
- 
+void checkNrfReceived()
+{
+
   delayMicroseconds(1000);
-  if (radio.available()) {             // if receive the data
-    while (radio.available()) {         // read all the data
+  if (radio.available()) {                            // if receive the data
+    while (radio.available())                         // read all the data
       radio.read(nrfDataRead, sizeof(nrfDataRead));   // read data
-    }
     nrfComplete = true;
     return;
   }
@@ -543,15 +484,13 @@ bool getNrf24L01Data()
   return nrfComplete;
 }
 
-void clearNrfFlag() {
+void clearNrfFlag()
+{
   nrfComplete = 0;
 }
 
-
-
-
-
-void updateCarActionByNrfRemote() {
+void updateCarActionByNrfRemote()
+{
   int x = nrfDataRead[2] - 512;
   int y = nrfDataRead[3] - 512;
   int pwmL, pwmR;
@@ -584,26 +523,9 @@ void resetNrfDataBuf() {
   nrfDataRead[7] = 1;
 }
 
-u8 updateNrfCarMode() {
-  // nrfDataRead [5 6 7] --> 111
+u8 updateNrfCarMode()
+{
   return ((nrfDataRead[5] == 1 ? 1 : 0) << 2) | ((nrfDataRead[6] == 1 ? 1 : 0) << 1) | ((nrfDataRead[7] == 1 ? 1 : 0) << 0);
-}
-
-/////////
-void pinsSetup() {
-  pinMode(PIN_DIRECTION_LEFT, OUTPUT);
-  pinMode(PIN_MOTOR_PWM_LEFT, OUTPUT);
-  pinMode(PIN_DIRECTION_RIGHT, OUTPUT);
-  pinMode(PIN_MOTOR_PWM_RIGHT, OUTPUT);
-
-  pinMode(PIN_SONIC_TRIG, OUTPUT);// set trigPin to output mode
-  pinMode(PIN_SONIC_ECHO, INPUT); // set echoPin to input mode
-
-  pinMode(PIN_TRACKING_LEFT, INPUT); // 
-  pinMode(PIN_TRACKING_RIGHT, INPUT); // 
-  pinMode(PIN_TRACKING_CENTER, INPUT); // 
-
-  setBuzzer(false);
 }
 
 void motorRun(int speedl, int speedr) {
@@ -647,11 +569,13 @@ bool getBatteryVoltage() {
   }
   return false;
 }
+
 void setBuzzer(bool flag) {
   isBuzzered = flag;
   pinMode(PIN_BUZZER, flag);
   digitalWrite(PIN_BUZZER, flag);
 }
+
 void alarm(u8 beat, u8 repeat) {
   beat = constrain(beat, 1, 9);
   repeat = constrain(repeat, 1, 255);
@@ -665,8 +589,8 @@ void alarm(u8 beat, u8 repeat) {
     delay(500);
   }
 }
+
 void resetCarAction() {
   motorRun(0, 0);
   setBuzzer(false);
 }
-/////////
