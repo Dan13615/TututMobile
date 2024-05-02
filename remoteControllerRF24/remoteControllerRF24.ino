@@ -9,24 +9,21 @@
 #include <SPI.h>
 #include "RF24.h"
 
-RF24 radio(9, 10);                  // define the object to control NRF24L01
+RF24 radio(9, 10);
+const byte addresses[6] = "Free1";
+int dataWrite[8];
 
-const byte addresses[6] = "Free1";  // define communication address which should correspond to remote control
-int dataWrite[8];                   // define array used to save the write data
-
-// PINS
-
-const int potentiometer1Pin = A0,
-          potentiometer2Pin = A1,
-          joystickXPin = A2,
-          joystickYPin = A3,
-          joystickZPin = 7,
-          s1Pin = 4,
-          s2Pin = 3,
-          s3Pin = 2,
-          led1Pin = 6,
-          led2Pin = 5,
-          led3Pin = 8;
+#define potentiometer1Pin   = A0;
+#define potentiometer2Pin   = A1;
+#define joystickXPin        = A2;
+#define joystickYPin        = A3;
+#define joystickZPin        = 7;
+#define s1Pin               = 4;
+#define s2Pin               = 3;
+#define s3Pin               = 2;
+#define led1Pin             = 6;
+#define led2Pin             = 5;
+#define led3Pin             = 8;
 
 void setup()
 {
