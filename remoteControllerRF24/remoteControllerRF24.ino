@@ -1,10 +1,8 @@
 /**********************************************************************
-* Filename    : remoteControllerRF24.ino
-* Product     : 4WD Car for ArduinoUNO
-* Description : Code for RF24 Remote Controller.
-* Author      : Dan13615
+  Project     : TututMobile
+  Description : A RF24 Remote Car.
+  Author      : Daniil Stepanov
 **********************************************************************/
-// NRF24L01
 
 #include <SPI.h>
 #include "RF24.h"
