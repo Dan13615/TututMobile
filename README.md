@@ -50,7 +50,6 @@ Ensure you have the following software installed:
 ## Contributors
 
 - [Daniil Stepanov](https://github.com/Dan13615)
-- [Tony Calviera](https://github.com/tonyClv)
 
 ## Contact
 
